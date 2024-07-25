@@ -1,0 +1,167 @@
+#include <LiquidCrystal.h>
+
+// Pins for motor driver
+const int motorPin1 = 3;
+const int motorPin2 = 4;
+const int enablePin = 5;
+
+// Button pins
+const int buttonPins[] = {6, 7, 8, 9, 10}; // Floor 1, Floor 2, Floor 3, Floor 4, Emergency Stop
+const int callUpPins[] = {A1, A2, A3, A4}; // Call Up buttons for floors 1, 2, 3, 4
+const int callDownPins[] = {A5, A6, A7, A8}; // Call Down buttons for floors 1, 2, 3, 4
+
+// LED pins
+const int ledPins[] = {11, 12, 13, A0}; // LEDs for floors 1, 2, 3, 4
+
+// Initialize the LCD
+LiquidCrystal lcd(2, 8, 9, 10, 11, 12);
+
+// Variables to store the state
+int currentFloor = 1; // Start on floor 1
+bool emergencyStop = false;
+bool goingUp = true;
+bool callRequests[4][2] = {false}; // callRequests[floor][0] for up, callRequests[floor][1] for down
+
+// Motor speed and delay
+const int motorSpeed = 200; // Speed range 0-255
+const int floorDelay = 3000; // Delay in milliseconds for moving between floors
+
+void setup() {
+  // Set motor pins as outputs
+  pinMode(motorPin1, OUTPUT);
+  pinMode(motorPin2, OUTPUT);
+  pinMode(enablePin, OUTPUT);
+
+  // Set button pins as inputs
+  for (int i = 0; i < 5; i++) {
+    pinMode(buttonPins[i], INPUT);
+  }
+
+  // Set call button pins as inputs
+  for (int i = 0; i < 4; i++) {
+    pinMode(callUpPins[i], INPUT);
+    pinMode(callDownPins[i], INPUT);
+  }
+
+  // Set LED pins as outputs
+  for (int i = 0; i < 4; i++) {
+    pinMode(ledPins[i], OUTPUT);
+  }
+
+  // Initialize the LCD
+  lcd.begin(16, 2);
+  lcd.print("Floor: ");
+  lcd.print(currentFloor);
+
+  // Initialize LEDs
+  updateLEDs();
+}
+
+void loop() {
+  // Check for floor button presses
+  for (int i = 0; i < 4; i++) {
+    if (digitalRead(buttonPins[i]) == HIGH) {
+      callRequests[i][0] = (i > currentFloor);
+      callRequests[i][1] = (i < currentFloor);
+    }
+  }
+
+  // Check for call button presses
+  for (int i = 0; i < 4; i++) {
+    if (digitalRead(callUpPins[i]) == HIGH) {
+      callRequests[i][0] = true;
+    }
+    if (digitalRead(callDownPins[i]) == HIGH) {
+      callRequests[i][1] = true;
+    }
+  }
+
+  // Check for emergency stop
+  if (digitalRead(buttonPins[4]) == HIGH) {
+    emergencyStop = true;
+    stopElevator();
+  }
+
+  // Determine elevator movement direction
+  if (goingUp) {
+    bool foundRequest = false;
+    for (int i = currentFloor - 1; i < 4; i++) { // Check current floor and above
+      if (callRequests[i][0] || callRequests[i][1]) {
+        moveToFloor(i + 1);
+        foundRequest = true;
+        break;
+      }
+    }
+    // Check if we need to change direction
+    if (!foundRequest || currentFloor == 4) {
+      goingUp = false;
+    }
+  } else {
+    bool foundRequest = false;
+    for (int i = currentFloor - 1; i >= 0; i--) { // Check current floor and below
+      if (callRequests[i][0] || callRequests[i][1]) {
+        moveToFloor(i + 1);
+        foundRequest = true;
+        break;
+      }
+    }
+    // Check if we need to change direction
+    if (!foundRequest || currentFloor == 1) {
+      goingUp = true;
+    }
+  }
+}
+
+void moveToFloor(int floor) {
+  if (emergencyStop) return;
+
+  while (currentFloor != floor) {
+    if (emergencyStop) return;
+
+    if (currentFloor < floor) {
+      moveUp();
+    } else {
+      moveDown();
+    }
+    
+    // Floor delay
+    delay(3000);
+
+    currentFloor += (currentFloor < floor) ? 1 : -1;
+    lcd.setCursor(7, 0);
+    lcd.print(currentFloor);
+    updateLEDs();
+  }
+
+  stopElevator();
+  clearCallRequest(floor - 1); // Adjust the index for callRequests
+}
+
+void moveUp() {
+  digitalWrite(motorPin1, HIGH);
+  digitalWrite(motorPin2, LOW);
+  analogWrite(enablePin, motorSpeed); // Set motor speed
+}
+
+void moveDown() {
+  digitalWrite(motorPin1, LOW);
+  digitalWrite(motorPin2, HIGH);
+  analogWrite(enablePin, motorSpeed); // Set motor speed
+}
+
+void stopElevator() {
+  digitalWrite(motorPin1, LOW);
+  digitalWrite(motorPin2, LOW);
+  analogWrite(enablePin, 0);
+}
+
+void updateLEDs() {
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(ledPins[i], (currentFloor == i + 1) ? HIGH : LOW);
+  }
+}
+
+void clearCallRequest(int floor) {
+  callRequests[floor][0] = false;
+  callRequests[floor][1] = false;
+}
